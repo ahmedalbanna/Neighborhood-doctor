@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useConsultations, Consultation } from '../hooks/useConsultations';
 import { db, auth } from '../lib/firebase';
-import { doc, updateDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, updateDoc, collection, addDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Filter, MessageSquare, User as UserIcon, Stethoscope, ChevronLeft, Send, CheckCircle, Phone, Play, Paperclip, X, History, FileText } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
@@ -18,9 +18,36 @@ export function DoctorDashboard() {
   const [filterSpecialty, setFilterSpecialty] = useState('كل التخصصات');
   const [showHistory, setShowHistory] = useState(false);
 
-  const specialties = ['كل التخصصات', 'عام', 'أطفال', 'نساء وتوليد', 'قلب', 'باطنية'];
+  const specialties = ['عام', 'أطفال', 'نساء وتوليد', 'قلب', 'باطنية'];
+  const [doctorSpecialty, setDoctorSpecialty] = React.useState('عام');
 
-  const filteredConsultations = consultations.filter(c => 
+  React.useEffect(() => {
+    const fetchProfile = async () => {
+      if (user) {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists() && userDoc.data().specialty) {
+          setDoctorSpecialty(userDoc.data().specialty);
+        }
+      }
+    };
+    fetchProfile();
+  }, [user]);
+
+  const handleSpecialtyChange = async (newSpecialty: string) => {
+    setDoctorSpecialty(newSpecialty);
+    if (user) {
+      await updateDoc(doc(db, 'users', user.uid), {
+        specialty: newSpecialty
+      });
+    }
+  };
+
+  const filteredConsultations = [...consultations].sort((a, b) => {
+    // Prioritize doctor's specialty
+    if (a.suggestedSpecialty === doctorSpecialty && b.suggestedSpecialty !== doctorSpecialty) return -1;
+    if (b.suggestedSpecialty === doctorSpecialty && a.suggestedSpecialty !== doctorSpecialty) return 1;
+    return 0;
+  }).filter(c => 
     filterSpecialty === 'كل التخصصات' || c.suggestedSpecialty === filterSpecialty
   );
 
@@ -36,7 +63,16 @@ export function DoctorDashboard() {
         type: 'voice',
         createdAt: serverTimestamp(),
       });
+
+      // Update consultation status
+      await updateDoc(doc(db, 'consultations', selectedCase.id), {
+        status: 'replied',
+        doctorId: user?.uid,
+        updatedAt: serverTimestamp(),
+      });
+
       setIsReplying(false);
+      setSelectedCase(null);
     } catch (err) {
       console.error(err);
       setIsReplying(false);
@@ -51,11 +87,20 @@ export function DoctorDashboard() {
       await addDoc(collection(db, `consultations/${selectedCase.id}/messages`), {
         senderId: user?.uid,
         content: mockPrescription,
-        type: 'image',
+        type: 'prescription',
         text: 'وصفة طبية رقم #123',
         createdAt: serverTimestamp(),
       });
+
+      // Update consultation status
+      await updateDoc(doc(db, 'consultations', selectedCase.id), {
+        status: 'replied',
+        doctorId: user?.uid,
+        updatedAt: serverTimestamp(),
+      });
+
       alert("تم إرسال الوصفة الطبية");
+      setSelectedCase(null);
     } catch (err) {
       console.error(err);
     }
@@ -115,6 +160,16 @@ export function DoctorDashboard() {
               </div>
               <span className="text-xl font-black text-brand tracking-tight">طبيب الحي</span>
             </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black text-gray-400">تخصصك:</span>
+              <select 
+                value={doctorSpecialty} 
+                onChange={(e) => handleSpecialtyChange(e.target.value)}
+                className="text-[10px] font-black text-brand bg-bg-base px-2 py-1 rounded-lg border-none focus:ring-0 cursor-pointer"
+              >
+                {specialties.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
           </div>
           
           <div className="relative">
@@ -126,7 +181,7 @@ export function DoctorDashboard() {
             />
           </div>
           <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-            {specialties.map(s => (
+            {['كل التخصصات', ...specialties].map(s => (
               <button
                 key={s}
                 onClick={() => setFilterSpecialty(s)}
@@ -163,11 +218,34 @@ export function DoctorDashboard() {
                 </div>
                 <h3 className="font-black text-[#2D2D2D] leading-none">{c.patientName}</h3>
                 <p className="text-xs text-gray-400 font-medium line-clamp-2 leading-relaxed italic">"{c.summary || c.description}"</p>
-                {c.status === 'replied' && (
-                  <div className="mt-2 py-1 px-3 bg-brand/10 text-brand rounded-full self-start text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
-                    <CheckCircle size={12} /> تم الرد
+                <div className="flex items-center justify-between mt-2">
+                  <div className="flex gap-2">
+                    {c.status === 'replied' && (
+                      <div className="py-1 px-3 bg-brand/10 text-brand rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                        <CheckCircle size={12} /> تم الرد
+                      </div>
+                    )}
+                    {c.suggestedSpecialty === doctorSpecialty && (
+                      <div className="py-1 px-3 bg-orange-100 text-orange-600 rounded-full text-[10px] font-black uppercase tracking-widest">
+                        تخصصك
+                      </div>
+                    )}
                   </div>
-                )}
+                  {c.audioUrl && (
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // Minimal play functionality - in a real app might need a tiny specialized player
+                        const audio = new Audio(c.audioUrl);
+                        audio.play();
+                      }}
+                      className="p-2 bg-bg-base text-brand rounded-xl hover:bg-brand hover:text-white transition-all shadow-sm"
+                      title="استماع سريع"
+                    >
+                      <Play size={14} fill="currentColor" />
+                    </button>
+                  )}
+                </div>
               </button>
             ))
           )}
