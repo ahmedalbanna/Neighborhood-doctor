@@ -1,0 +1,12 @@
+{
+  "name": "طبيب الحي - صحتك بالصوت",
+  "description": "منصة صحية يمنية تعتمد على الصوت لتسهيل الاستشارات الطبية للفئات الأقل قدرة على القراءة والكتابة، مع تحليل ذكي للهجات المحلية.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "Audio Recording",
+    "AI Medical Triage",
+    "Yemeni Dialect Recognition"
+  ]
+}

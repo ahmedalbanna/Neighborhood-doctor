@@ -1,0 +1,65 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile for patients and doctors",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["patient", "doctor"] },
+        "phone": { "type": "string" },
+        "specialty": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "role", "createdAt"]
+    },
+    "Consultation": {
+      "title": "Consultation",
+      "description": "A medical consultation request from a patient",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string" },
+        "patientName": { "type": "string" },
+        "doctorId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "active", "replied", "closed"] },
+        "priority": { "type": "string", "enum": ["low", "medium", "high", "emergency"] },
+        "description": { "type": "string" },
+        "summary": { "type": "string" },
+        "audioUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["patientId", "status", "createdAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A message within a consultation",
+      "type": "object",
+      "properties": {
+        "consultationId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "content": { "type": "string" },
+        "audioUrl": { "type": "string" },
+        "type": { "type": "string", "enum": ["text", "voice", "prescription"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["consultationId", "senderId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Global users collection"
+    },
+    "/consultations/{consultationId}": {
+      "schema": "Consultation",
+      "description": "Global consultations collection"
+    },
+    "/consultations/{consultationId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Messages subcollection for each consultation"
+    }
+  }
+}
