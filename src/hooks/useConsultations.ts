@@ -34,13 +34,11 @@ export function useConsultations(role: 'patient' | 'doctor', userId: string) {
         limit(20)
       );
     } else {
-      // Doctors see pending or their assigned active ones
-      // For simplicity, we'll fetch all active/pending and filter in UI or use a more complex query
+      // Doctors see all active, pending or replied for their triage
       q = query(
         collection(db, 'consultations'),
         where('status', 'in', ['pending', 'active', 'replied']),
-        orderBy('createdAt', 'desc'),
-        limit(50)
+        limit(100)
       );
     }
 

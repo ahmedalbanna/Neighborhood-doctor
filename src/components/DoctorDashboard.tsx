@@ -43,13 +43,22 @@ export function DoctorDashboard() {
   };
 
   const filteredConsultations = [...consultations].sort((a, b) => {
-    // Prioritize doctor's specialty
-    if (a.suggestedSpecialty === doctorSpecialty && b.suggestedSpecialty !== doctorSpecialty) return -1;
-    if (b.suggestedSpecialty === doctorSpecialty && a.suggestedSpecialty !== doctorSpecialty) return 1;
+    // Sort by date first (descending)
+    const dateA = a.createdAt?.toDate?.() || new Date(0);
+    const dateB = b.createdAt?.toDate?.() || new Date(0);
+    if (dateB > dateA) return 1;
+    if (dateA > dateB) return -1;
+
+    // Then prioritize doctor's specialty
+    const specialtyA = a.suggestedSpecialty || 'عام';
+    const specialtyB = b.suggestedSpecialty || 'عام';
+    if (specialtyA === doctorSpecialty && specialtyB !== doctorSpecialty) return -1;
+    if (specialtyB === doctorSpecialty && specialtyA !== doctorSpecialty) return 1;
     return 0;
-  }).filter(c => 
-    filterSpecialty === 'كل التخصصات' || c.suggestedSpecialty === filterSpecialty
-  );
+  }).filter(c => {
+    const specialty = c.suggestedSpecialty || 'عام';
+    return filterSpecialty === 'كل التخصصات' || specialty === filterSpecialty;
+  });
 
   const handleVoiceMessage = async (blob: Blob, base64: string) => {
     if (!selectedCase) return;

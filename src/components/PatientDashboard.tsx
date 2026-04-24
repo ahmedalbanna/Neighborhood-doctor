@@ -5,8 +5,9 @@ import { transcribeAndAnalyze } from '../lib/gemini';
 import { db, auth } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, CheckCircle2, AlertCircle, Phone, Stethoscope, ChevronRight, Mic, User as UserIcon, Play, MessageSquare, ArrowLeft } from 'lucide-react';
+import { Clock, CheckCircle2, AlertCircle, Phone, Stethoscope, ChevronRight, Mic, User as UserIcon, Play, MessageSquare, ArrowLeft, Activity } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
+import { SymptomChecker } from './SymptomChecker';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 
@@ -15,6 +16,7 @@ export function PatientDashboard() {
   const { consultations, loading } = useConsultations('patient', user?.uid || '');
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  const [showChecker, setShowChecker] = useState(false);
 
   const selectedCase = consultations.find(c => c.id === selectedCaseId);
 
@@ -138,6 +140,21 @@ export function PatientDashboard() {
         </div>
       </header>
 
+      {/* Quick Actions */}
+      <div className="px-8 mt-8 grid grid-cols-2 gap-4">
+        <button 
+          onClick={() => setShowChecker(true)}
+          className="bg-brand text-white p-6 rounded-[32px] shadow-xl shadow-brand/20 flex flex-col items-center gap-2 hover:scale-[1.02] transition-all"
+        >
+          <Activity size={24} className="animate-pulse" />
+          <span className="text-xs font-black uppercase tracking-widest">فحص سريع</span>
+        </button>
+        <div className="bg-white border border-border-subtle p-6 rounded-[32px] flex flex-col items-center gap-2">
+          <Stethoscope size={24} className="text-brand" />
+          <span className="text-xs font-black text-gray-400 uppercase tracking-widest">تحسين الملف</span>
+        </div>
+      </div>
+
       <main className="flex-1 p-8 space-y-10">
         {/* Record Section */}
         <section>
@@ -248,6 +265,8 @@ export function PatientDashboard() {
          </div>
          <p className="text-[10px] text-gray-400">© 2024 طبيب الحي - مشروع إنساني مستدام</p>
       </footer>
+
+      {showChecker && <SymptomChecker onClose={() => setShowChecker(false)} />}
     </div>
   );
 }

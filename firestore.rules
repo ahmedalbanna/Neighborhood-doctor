@@ -33,18 +33,19 @@ service cloud.firestore {
       return isSignedIn() && (request.auth.uid == data.patientId || request.auth.uid == data.doctorId);
     }
 
+    function isDoctor() {
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'doctor';
+    }
+
     match /consultations/{consultationId} {
-      allow read: if isSignedIn() && (request.auth.uid == resource.data.patientId || 
-                                     (request.auth.uid == resource.data.doctorId || resource.data.status == 'pending'));
+      allow read: if isSignedIn() && (isOwner(resource.data.patientId) || isDoctor());
       allow create: if isSignedIn() && request.resource.data.patientId == request.auth.uid;
       allow update: if isSignedIn() && (
-        (request.auth.uid == resource.data.patientId && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['description', 'audioUrl'])) ||
-        (request.auth.uid == resource.data.doctorId) ||
-        (resource.data.status == 'pending' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['doctorId', 'status']))
+        isOwner(resource.data.patientId) || isDoctor()
       );
 
       match /messages/{messageId} {
-        allow read: if isSignedIn();
+        allow read: if isSignedIn() && (isOwner(get(/databases/$(database)/documents/consultations/$(consultationId)).data.patientId) || isDoctor());
         allow create: if isSignedIn();
       }
     }

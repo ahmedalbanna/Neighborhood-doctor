@@ -64,11 +64,36 @@ export async function transcribeAndAnalyze(audioBase64: string, mimeType: string
   }
 }
 
-export async function generateAIAssistantReply(transcription: string) {
-  // Optional: could be used for immediate automated feedback
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: `المريض يقول: "${transcription}". قدم نصيحة طبية أولية سريعة جداً وودودة باللهجة اليمنية، وأكد له أن الطبيب سيطلع على حالته قريباً. لا تعطِ تشخيصاً نهائياً.`,
-  });
-  return response.text;
+export async function getSelfDiagnosisStep(history: { role: "user" | "model", text: string }[]) {
+  try {
+    const chat = ai.models.startChat({
+      model: "gemini-3-flash-preview",
+      history: [
+        {
+          role: "user",
+          parts: [{ text: "أنت طبيب ذكي وودود تساعد المرضى في الأرياف اليمنية. هدفك هو مساعدتهم في تشخيص أعراضهم عبر أسئلة صوتية بسيطة باللهجة اليمنية." }],
+        },
+        ...history.map(h => ({ role: h.role, parts: [{ text: h.text }] })),
+      ],
+    });
+
+    const result = await chat.sendMessage(`
+      بناءً على المحادثة السابقة:
+      1. اقترح السؤال التالي للمريض باللهجة اليمنية البسيطة.
+      2. إذا كانت الحالة كافية للتشخيص الأولي، قدم النتيجة (فحص منزلي، استشارة طبيب، أو طوارئ).
+      3. يجب أن يكون الرد بتنسيق JSON:
+      {
+        "question": "السؤال التالي أو التوجيه النهائي",
+        "isFinal": true | false,
+        "urgency": "low | medium | high | emergency",
+        "advice": "نصيحة مختصرة جداً"
+      }
+    `);
+
+    const responseText = result.response.text();
+    return JSON.parse(responseText || "{}");
+  } catch (error) {
+    console.error("Diagnosis Error:", error);
+    throw error;
+  }
 }
