@@ -12,6 +12,7 @@ export interface Consultation {
   description: string;
   summary: string;
   audioUrl?: string;
+  suggestedSpecialty?: string;
   createdAt: any;
   updatedAt: any;
   detectedDialect?: string;

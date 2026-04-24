@@ -1,13 +1,14 @@
 import React, { useState, useRef } from 'react';
-import { Mic, Square, Play, Trash2, Send, Loader2 } from 'lucide-react';
+import { Mic, Square, Play, Trash2, Send, Loader2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface AudioRecorderProps {
   onRecordingComplete: (blob: Blob, base64: string) => void;
   isProcessing?: boolean;
+  minimal?: boolean;
 }
 
-export function AudioRecorder({ onRecordingComplete, isProcessing }: AudioRecorderProps) {
+export function AudioRecorder({ onRecordingComplete, isProcessing, minimal }: AudioRecorderProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -75,6 +76,29 @@ export function AudioRecorder({ onRecordingComplete, isProcessing }: AudioRecord
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
+
+  if (minimal) {
+    return (
+      <div className="flex items-center gap-2">
+        {audioBlob ? (
+          <div className="flex items-center gap-2 bg-brand/10 p-1 pr-4 rounded-full">
+            <span className="text-xs font-bold text-brand">{formatTime(recordingTime)}</span>
+            <button onClick={resetRecording} className="p-2 text-red-500"><X size={16} /></button>
+            <button onClick={handleSend} disabled={isProcessing} className="p-2 bg-brand text-white rounded-full">
+              {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={isRecording ? stopRecording : startRecording}
+            className={`p-3 rounded-full transition-all ${isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-bg-base text-brand'}`}
+          >
+            {isRecording ? <Square size={20} fill="currentColor" /> : <Mic size={20} />}
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center gap-8 p-10 bg-white rounded-[40px] shadow-sm border border-border-subtle">

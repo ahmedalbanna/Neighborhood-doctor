@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { auth, googleProvider, db } from './lib/firebase';
 import { signInWithPopup, onAuthStateChanged, signOut, User } from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { PatientDashboard } from './components/PatientDashboard';
 import { DoctorDashboard } from './components/DoctorDashboard';
 import { motion, AnimatePresence } from 'motion/react';
@@ -52,6 +52,7 @@ export default function App() {
         name: user.displayName,
         email: user.email,
         role: selectedRole,
+        specialty: selectedRole === 'doctor' ? 'عام' : null,
         createdAt: serverTimestamp(),
       });
       setRole(selectedRole);

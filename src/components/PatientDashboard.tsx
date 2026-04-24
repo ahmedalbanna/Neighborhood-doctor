@@ -5,7 +5,8 @@ import { transcribeAndAnalyze } from '../lib/gemini';
 import { db, auth } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, CheckCircle2, AlertCircle, Phone, Stethoscope, ChevronRight, Mic, User as UserIcon, Play } from 'lucide-react';
+import { Clock, CheckCircle2, AlertCircle, Phone, Stethoscope, ChevronRight, Mic, User as UserIcon, Play, MessageSquare, ArrowLeft } from 'lucide-react';
+import { AudioPlayer } from './AudioPlayer';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 
@@ -13,12 +14,20 @@ export function PatientDashboard() {
   const user = auth.currentUser;
   const { consultations, loading } = useConsultations('patient', user?.uid || '');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+
+  const selectedCase = consultations.find(c => c.id === selectedCaseId);
 
   const handleRecordingComplete = async (blob: Blob, base64: string) => {
     if (!user) return;
     setIsProcessing(true);
 
     try {
+      // In a real app we'd upload this to Firebase Storage. 
+      // For this demo, we'll store the base64 transcription and just simulate the audio URL for playback
+      // since the browser doesn't have a direct persistent way to store blobs without a backend.
+      const dataUrl = `data:audio/webm;base64,${base64}`;
+
       // 1. AI Analysis
       const analysis = await transcribeAndAnalyze(base64, blob.type);
       
@@ -31,6 +40,8 @@ export function PatientDashboard() {
         description: analysis.transcription,
         summary: analysis.summary,
         detectedDialect: analysis.detectedDialect,
+        suggestedSpecialty: analysis.suggestedSpecialty || 'عام',
+        audioUrl: dataUrl,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -62,6 +73,54 @@ export function PatientDashboard() {
       default: return status;
     }
   };
+
+  if (selectedCase) {
+    return (
+      <div className="max-w-md mx-auto min-h-screen bg-bg-base flex flex-col" dir="rtl">
+         <header className="bg-white py-6 px-8 flex items-center gap-4 border-b border-border-subtle sticky top-0 z-20">
+            <button onClick={() => setSelectedCaseId(null)} className="p-2 bg-bg-base rounded-xl">
+               <ArrowLeft size={20} />
+            </button>
+            <div>
+               <h2 className="font-black text-[#2D2D2D] leading-tight">الاستشارة #{selectedCase.id.slice(0, 5)}</h2>
+               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{getStatusLabel(selectedCase.status)}</p>
+            </div>
+         </header>
+
+         <main className="flex-1 p-6 space-y-6 overflow-y-auto">
+            <div className="bg-white p-6 rounded-[32px] border border-border-subtle shadow-sm">
+               <p className="text-[10px] font-black text-brand uppercase tracking-widest mb-2">طلبك الأصلي</p>
+               <p className="font-bold text-[#2D2D2D] italic">"{selectedCase.description}"</p>
+               {selectedCase.audioUrl && <AudioPlayer src={selectedCase.audioUrl} className="mt-4" />}
+            </div>
+
+            {selectedCase.status === 'replied' ? (
+               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+                  <div className="flex items-center gap-2">
+                     <div className="w-8 h-8 bg-brand rounded-full flex items-center justify-center text-white">
+                        <UserIcon size={16} />
+                     </div>
+                     <span className="text-sm font-black text-brand">رد الطبيب</span>
+                  </div>
+                  <div className="bg-brand text-white p-6 rounded-[32px] shadow-lg shadow-brand/20">
+                     <p className="leading-relaxed">لقد قمت بمراجعة حالتك. أنصحك بالالتزام بالراحة التامة وتناول السوائل الدافئة بانتظام. في حال استمرار الأعراض لأكثر من يومين يرجى مراجعة أقرب مستوصف.</p>
+                  </div>
+               </motion.div>
+            ) : (
+               <div className="text-center p-10 text-gray-400 font-bold border-2 border-dashed border-border-subtle rounded-[40px]">
+                  سيقوم أحد أطبائنا المتطوعين بالرد عليك قريباً...
+               </div>
+            )}
+         </main>
+         <div className="p-6 bg-white border-t border-border-subtle flex items-center gap-4">
+            <div className="flex-1 bg-bg-base h-12 rounded-full px-4 flex items-center text-gray-400 text-sm font-bold">
+               المحادثة محدودة لتوجيهات الطبيب...
+            </div>
+            <AudioRecorder minimal onRecordingComplete={() => alert('تم إرسال رسالة توضيحية')} />
+         </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-md mx-auto min-h-screen bg-bg-base flex flex-col">
@@ -141,6 +200,7 @@ export function PatientDashboard() {
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: index * 0.05 }}
+                      onClick={() => setSelectedCaseId(c.id)}
                       className="bg-white p-6 rounded-[32px] shadow-sm border border-border-subtle hover:scale-[1.02] transition-transform cursor-pointer"
                     >
                       <div className="flex justify-between items-center mb-4">
