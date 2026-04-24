@@ -3,7 +3,7 @@ import { useConsultations, Consultation } from '../hooks/useConsultations';
 import { db, auth } from '../lib/firebase';
 import { doc, updateDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Filter, MessageSquare, User, Stethoscope, ChevronLeft, Send, CheckCircle } from 'lucide-react';
+import { Search, Filter, MessageSquare, User as UserIcon, Stethoscope, ChevronLeft, Send, CheckCircle, Phone } from 'lucide-react';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 
