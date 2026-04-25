@@ -1,3 +1,4 @@
+// /src/App.tsx
 import React, { useState, useEffect } from 'react';
 import { auth, googleProvider, db } from './lib/firebase';
 import { signInWithPopup, onAuthStateChanged, signOut, User } from 'firebase/auth';
@@ -6,6 +7,7 @@ import { PatientDashboard } from './components/PatientDashboard';
 import { DoctorDashboard } from './components/DoctorDashboard';
 import { motion, AnimatePresence } from 'motion/react';
 import { LogOut, Stethoscope, User as UserIcon, Loader2, Heart } from 'lucide-react';
+import { Toaster } from 'react-hot-toast';
 
 type Role = 'patient' | 'doctor';
 
@@ -141,6 +143,7 @@ export default function App() {
 
   return (
     <div className="relative">
+      <Toaster position="top-center" toastOptions={{ duration: 4000, style: { background: '#333', color: '#fff', borderRadius: '16px', padding: '16px' } }} />
       {role === 'patient' ? <PatientDashboard /> : <DoctorDashboard />}
       
       {/* Universal Sign Out - Bottom Left */}

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useConsultations, Consultation } from '../hooks/useConsultations';
+import { useMessages } from '../hooks/useMessages';
 import { db, auth } from '../lib/firebase';
 import { doc, updateDoc, collection, addDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
@@ -8,6 +9,7 @@ import { AudioPlayer } from './AudioPlayer';
 import { AudioRecorder } from './AudioRecorder';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
+import toast from 'react-hot-toast';
 
 export function DoctorDashboard() {
   const user = auth.currentUser;
@@ -16,7 +18,31 @@ export function DoctorDashboard() {
   const [replyText, setReplyText] = useState('');
   const [isReplying, setIsReplying] = useState(false);
   const [filterSpecialty, setFilterSpecialty] = useState('كل التخصصات');
+  const [searchQuery, setSearchQuery] = useState('');
   const [showHistory, setShowHistory] = useState(false);
+  const { messages, loading: messagesLoading } = useMessages(selectedCase?.id);
+  const prevConsultationsLength = React.useRef(0);
+  const prevMessagesLength = React.useRef(0);
+
+  React.useEffect(() => {
+    if (!loading && consultations.length > prevConsultationsLength.current && prevConsultationsLength.current !== 0) {
+      // Find the new consultation
+      const isNew = consultations.some(c => c.status === 'pending');
+      if (isNew) {
+        toast.success("حالة استشارة جديدة بانتظار مراجعتك", { icon: "🔔" });
+      }
+    }
+    prevConsultationsLength.current = consultations.length;
+  }, [consultations, loading]);
+
+  React.useEffect(() => {
+    if (!messagesLoading && messages.length > prevMessagesLength.current && prevMessagesLength.current !== 0) {
+      if (messages[messages.length - 1]?.senderId !== user?.uid) {
+         toast.success("رسالة جديدة من المريض", { icon: "📩" });
+      }
+    }
+    prevMessagesLength.current = messages.length;
+  }, [messages, messagesLoading, user?.uid]);
 
   const specialties = ['عام', 'أطفال', 'نساء وتوليد', 'قلب', 'باطنية'];
   const [doctorSpecialty, setDoctorSpecialty] = React.useState('عام');
@@ -57,7 +83,10 @@ export function DoctorDashboard() {
     return 0;
   }).filter(c => {
     const specialty = c.suggestedSpecialty || 'عام';
-    return filterSpecialty === 'كل التخصصات' || specialty === filterSpecialty;
+    const matchesSpecialty = filterSpecialty === 'كل التخصصات' || specialty === filterSpecialty;
+    const searchLower = searchQuery.toLowerCase();
+    const matchesSearch = c.patientName.toLowerCase().includes(searchLower) || c.description.toLowerCase().includes(searchLower) || (c.summary && c.summary.toLowerCase().includes(searchLower));
+    return matchesSpecialty && matchesSearch;
   });
 
   const handleVoiceMessage = async (blob: Blob, base64: string) => {
@@ -89,15 +118,15 @@ export function DoctorDashboard() {
   };
 
   const handlePrescriptionUpload = async () => {
-    // Mock prescription upload - in real app, use a file input
+    // Generate a pharmacy reference code
     if (!selectedCase) return;
-    const mockPrescription = "https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=800&q=80";
+    const refNum = Math.floor(100000 + Math.random() * 900000).toString();
     try {
       await addDoc(collection(db, `consultations/${selectedCase.id}/messages`), {
         senderId: user?.uid,
-        content: mockPrescription,
+        content: refNum,
         type: 'prescription',
-        text: 'وصفة طبية رقم #123',
+        text: `وصفة طبية رقم #${refNum}`,
         createdAt: serverTimestamp(),
       });
 
@@ -108,10 +137,11 @@ export function DoctorDashboard() {
         updatedAt: serverTimestamp(),
       });
 
-      alert("تم إرسال الوصفة الطبية");
+      toast.success("تم إرسال الوصفة الطبية");
       setSelectedCase(null);
     } catch (err) {
       console.error(err);
+      toast.error("حدث خطأ");
     }
   };
 
@@ -185,6 +215,8 @@ export function DoctorDashboard() {
             <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
             <input 
               type="text" 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="البحث في الحالات..." 
               className="w-full pr-12 pl-4 py-4 bg-bg-base rounded-[20px] border-none focus:ring-2 focus:ring-brand transition-all text-sm font-bold text-brand placeholder:text-gray-400 shadow-inner"
             />
@@ -211,7 +243,15 @@ export function DoctorDashboard() {
             filteredConsultations.map(c => (
               <button
                 key={c.id}
-                onClick={() => setSelectedCase(c)}
+                onClick={() => {
+                  setSelectedCase(c);
+                  if (c.status === 'pending') {
+                    updateDoc(doc(db, 'consultations', c.id), { 
+                       status: 'active',
+                       doctorId: user?.uid 
+                    });
+                  }
+                }}
                 className={`p-6 rounded-[32px] transition-all text-right flex flex-col gap-3 border-2 ${
                   selectedCase?.id === c.id ? 'border-brand bg-bg-base shadow-lg' : 'border-transparent bg-white hover:bg-bg-base'
                 } group`}
@@ -283,13 +323,29 @@ export function DoctorDashboard() {
                   <p className="text-xs font-black text-gray-400 uppercase tracking-widest mt-1">مريض - لهجة {selectedCase.detectedDialect || 'يمنية'}</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setShowHistory(!showHistory)}
-                className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-bold transition-all ${showHistory ? 'bg-brand text-white' : 'bg-bg-base text-gray-400 hover:bg-gray-200'}`}
-              >
-                <History size={18} />
-                {showHistory ? 'إغلاق السجل' : 'عرض السجل المرضي'}
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setShowHistory(!showHistory)}
+                  className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-bold transition-all ${showHistory ? 'bg-brand text-white' : 'bg-bg-base text-gray-400 hover:bg-gray-200'}`}
+                >
+                  <History size={18} />
+                  <span className="hidden sm:inline">{showHistory ? 'إغلاق السجل' : 'السجل المرضي'}</span>
+                </button>
+                {selectedCase.status !== 'closed' && (
+                  <button 
+                    onClick={async () => {
+                      if (window.confirm('هل أنت متأكد من إغلاق هذه الاستشارة نهائياً؟')) {
+                         await updateDoc(doc(db, 'consultations', selectedCase.id), { status: 'closed' });
+                         setSelectedCase(null);
+                      }
+                    }}
+                    className="flex items-center gap-2 px-6 py-3 rounded-2xl font-bold transition-all bg-red-50 text-red-600 hover:bg-red-100"
+                  >
+                    <CheckCircle size={18} />
+                    <span className="hidden sm:inline">إغلاق الحالة</span>
+                  </button>
+                )}
+              </div>
             </header>
 
             <div className="flex-1 overflow-y-auto p-10">
@@ -369,11 +425,37 @@ export function DoctorDashboard() {
                              </div>
                              <div className="text-right">
                                <span className="block text-sm font-black text-[#2D2D2D]">وصفة طبية</span>
-                               <span className="text-[10px] font-bold text-gray-400">رفع مستند الصيدلية</span>
+                               <span className="text-[10px] font-bold text-gray-400">إصدار وصفة رقمية</span>
                              </div>
                           </button>
                         </div>
                     </div>
+
+                    {/* Chat History */}
+                    {messages.length > 0 && (
+                      <div className="bg-white p-10 rounded-[48px] shadow-sm border border-border-subtle space-y-6">
+                        <h3 className="font-black text-[#2D2D2D] mb-4">سجل المحادثة</h3>
+                        <div className="space-y-4">
+                          {messages.map(msg => (
+                            <div key={msg.id} className={`flex ${msg.senderId === user?.uid ? 'justify-start' : 'justify-end'}`}>
+                              <div className={`p-4 rounded-2xl max-w-[80%] ${msg.senderId === user?.uid ? 'bg-brand text-white' : 'bg-bg-base text-[#2D2D2D]'}`}>
+                                {msg.type === 'text' && <p className="font-bold">{msg.content}</p>}
+                                {msg.type === 'voice' && <AudioPlayer src={msg.content} className={msg.senderId === user?.uid ? 'bg-white/20' : ''} />}
+                                {msg.type === 'prescription' && (
+                                  <div className="flex flex-col gap-2">
+                                    <FileText size={24} />
+                                    <p className="font-bold text-sm">{msg.text || "وصفة طبية رقمية"}</p>
+                                  </div>
+                                )}
+                                <span className={`text-[10px] mt-2 block ${msg.senderId === user?.uid ? 'text-brand-50' : 'text-gray-400'}`}>
+                                  {msg.createdAt?.toDate ? format(msg.createdAt.toDate(), 'HH:mm') : 'الآن'}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
               </div>

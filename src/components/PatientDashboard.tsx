@@ -8,6 +8,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Clock, CheckCircle2, AlertCircle, Phone, Stethoscope, ChevronRight, Mic, User as UserIcon, Play, MessageSquare, ArrowLeft, Activity } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
 import { SymptomChecker } from './SymptomChecker';
+import { QRCodeSVG } from 'qrcode.react';
+import { useMessages } from '../hooks/useMessages';
+import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 
@@ -17,6 +20,7 @@ export function PatientDashboard() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [showChecker, setShowChecker] = useState(false);
+  const { messages, loading: messagesLoading } = useMessages(selectedCaseId || undefined);
 
   const selectedCase = consultations.find(c => c.id === selectedCaseId);
 
@@ -51,6 +55,27 @@ export function PatientDashboard() {
     } catch (err) {
       console.error("Submission failed:", err);
       alert("عذراً، حدث خطأ أثناء معالجة رسالتك. يرجى المحاولة لاحقاً.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleFollowUpRecording = async (blob: Blob, base64: string) => {
+    if (!user || !selectedCaseId) return;
+    setIsProcessing(true);
+    try {
+      const dataUrl = `data:audio/webm;base64,${base64}`;
+      await addDoc(collection(db, `consultations/${selectedCaseId}/messages`), {
+        senderId: user.uid,
+        content: dataUrl,
+        type: 'voice',
+        createdAt: serverTimestamp(),
+      });
+      // Optionally update the consultation status if needed
+      toast.success("تم إرسال ردك للطبيب");
+    } catch(err) {
+      console.error(err);
+      toast.error("حدث خطأ في الإرسال");
     } finally {
       setIsProcessing(false);
     }
@@ -96,18 +121,37 @@ export function PatientDashboard() {
                {selectedCase.audioUrl && <AudioPlayer src={selectedCase.audioUrl} className="mt-4" />}
             </div>
 
-            {selectedCase.status === 'replied' ? (
-               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-                  <div className="flex items-center gap-2">
-                     <div className="w-8 h-8 bg-brand rounded-full flex items-center justify-center text-white">
-                        <UserIcon size={16} />
+            {messagesLoading ? (
+               <div className="flex justify-center p-10"><Activity className="animate-spin text-brand" /></div>
+            ) : messages.length > 0 ? (
+               <div className="space-y-4">
+                 {messages.map(msg => (
+                   <motion.div key={msg.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`flex ${msg.senderId === user?.uid ? 'justify-end' : 'justify-start'}`}>
+                     <div className={`p-5 rounded-3xl max-w-[85%] ${msg.senderId === user?.uid ? 'bg-bg-base text-[#2D2D2D]' : 'bg-brand text-white'}`}>
+                        {msg.senderId !== user?.uid && (
+                           <div className="flex items-center gap-2 mb-2">
+                             <Stethoscope size={14} className="text-white/70" />
+                             <span className="text-[10px] font-black uppercase tracking-widest text-white/70">رد الطبيب</span>
+                           </div>
+                        )}
+                        {msg.type === 'text' && <p className="font-bold leading-relaxed">{msg.content}</p>}
+                        {msg.type === 'voice' && <AudioPlayer src={msg.content} className={msg.senderId !== user?.uid ? 'bg-white/20' : ''} />}
+                        {msg.type === 'prescription' && (
+                          <div className="flex flex-col gap-4 items-center bg-white text-[#2D2D2D] p-6 rounded-2xl">
+                             <QRCodeSVG value={msg.content} size={120} />
+                             <div className="text-center">
+                                <p className="text-xs font-bold text-gray-500">رقم الوصفة للصيدلية</p>
+                                <p className="text-xl font-black text-brand tracking-widest">{msg.content}</p>
+                             </div>
+                          </div>
+                        )}
+                        <p className={`text-[10px] mt-2 ${msg.senderId === user?.uid ? 'text-gray-400' : 'text-white/50'}`}>
+                           {msg.createdAt?.toDate ? format(msg.createdAt.toDate(), 'HH:mm') : 'الآن'}
+                        </p>
                      </div>
-                     <span className="text-sm font-black text-brand">رد الطبيب</span>
-                  </div>
-                  <div className="bg-brand text-white p-6 rounded-[32px] shadow-lg shadow-brand/20">
-                     <p className="leading-relaxed">لقد قمت بمراجعة حالتك. أنصحك بالالتزام بالراحة التامة وتناول السوائل الدافئة بانتظام. في حال استمرار الأعراض لأكثر من يومين يرجى مراجعة أقرب مستوصف.</p>
-                  </div>
-               </motion.div>
+                   </motion.div>
+                 ))}
+               </div>
             ) : (
                <div className="text-center p-10 text-gray-400 font-bold border-2 border-dashed border-border-subtle rounded-[40px]">
                   سيقوم أحد أطبائنا المتطوعين بالرد عليك قريباً...
@@ -116,9 +160,11 @@ export function PatientDashboard() {
          </main>
          <div className="p-6 bg-white border-t border-border-subtle flex items-center gap-4">
             <div className="flex-1 bg-bg-base h-12 rounded-full px-4 flex items-center text-gray-400 text-sm font-bold">
-               المحادثة محدودة لتوجيهات الطبيب...
+               {selectedCase.status === 'closed' ? 'هذه الاستشارة مغلقة...' : 'سجل استفسارك الإضافي هنا...'}
             </div>
-            <AudioRecorder minimal onRecordingComplete={() => alert('تم إرسال رسالة توضيحية')} />
+            {selectedCase.status !== 'closed' && (
+              <AudioRecorder minimal onRecordingComplete={handleFollowUpRecording} isProcessing={isProcessing} />
+            )}
          </div>
       </div>
     );
