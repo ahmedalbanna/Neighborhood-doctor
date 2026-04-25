@@ -1,18 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useConsultations, Consultation } from '../hooks/useConsultations';
 import { AudioRecorder } from './AudioRecorder';
 import { transcribeAndAnalyze } from '../lib/gemini';
 import { db, auth } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, CheckCircle2, AlertCircle, Phone, Stethoscope, ChevronRight, Mic, User as UserIcon, Play, MessageSquare, ArrowLeft, Activity } from 'lucide-react';
+import { Clock, CheckCircle2, AlertCircle, Phone, Stethoscope, ChevronRight, Mic, User as UserIcon, Play, MessageSquare, ArrowLeft, Activity, Paperclip, X, Download, Copy, Send } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
 import { SymptomChecker } from './SymptomChecker';
-import { QRCodeSVG } from 'qrcode.react';
+import { QRCodeCanvas } from 'qrcode.react';
 import { useMessages } from '../hooks/useMessages';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
+import { uploadMessageFile } from '../lib/storage';
 
 export function PatientDashboard() {
   const user = auth.currentUser;
@@ -20,9 +21,70 @@ export function PatientDashboard() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [showChecker, setShowChecker] = useState(false);
+  const [replyText, setReplyText] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const qrRef = useRef<HTMLCanvasElement>(null);
   const { messages, loading: messagesLoading } = useMessages(selectedCaseId || undefined);
 
   const selectedCase = consultations.find(c => c.id === selectedCaseId);
+
+  const handleCopyPrescription = (code: string) => {
+    navigator.clipboard.writeText(code).then(() => toast.success("تم نسخ رقم الوصفة"));
+  };
+
+  const handleDownloadQR = () => {
+    const canvas = qrRef.current;
+    if (canvas) {
+      const url = canvas.toDataURL("image/png");
+      const link = document.createElement("a");
+      link.download = `prescription-${selectedCaseId}.png`;
+      link.href = url;
+      link.click();
+    }
+  };
+
+  const handleTextReply = async () => {
+    if (!replyText.trim() || !user || !selectedCaseId) return;
+    setIsProcessing(true);
+    try {
+      await addDoc(collection(db, `consultations/${selectedCaseId}/messages`), {
+        senderId: user.uid,
+        content: replyText,
+        type: 'text',
+        createdAt: serverTimestamp(),
+      });
+      setReplyText('');
+      toast.success("تم إرسال الاستفسار");
+    } catch(err) {
+      console.error(err);
+      toast.error("حدث خطأ في الإرسال");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user || !selectedCaseId) return;
+    
+    setIsProcessing(true);
+    try {
+      const fileUrl = await uploadMessageFile(file, selectedCaseId);
+      await addDoc(collection(db, `consultations/${selectedCaseId}/messages`), {
+        senderId: user.uid,
+        content: fileUrl,
+        type: 'image', // We'll use 'image' for simplicity, could be 'file' in future
+        createdAt: serverTimestamp(),
+      });
+      toast.success("تم إرسال الملف");
+    } catch(err) {
+      console.error(err);
+      toast.error("حدث خطأ في رفع الملف");
+    } finally {
+      setIsProcessing(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const handleRecordingComplete = async (blob: Blob, base64: string) => {
     if (!user) return;
@@ -136,12 +198,21 @@ export function PatientDashboard() {
                         )}
                         {msg.type === 'text' && <p className="font-bold leading-relaxed">{msg.content}</p>}
                         {msg.type === 'voice' && <AudioPlayer src={msg.content} className={msg.senderId !== user?.uid ? 'bg-white/20' : ''} />}
+                        {msg.type === 'image' && <img src={msg.content} className="rounded-2xl max-w-full" alt="attachment" />}
                         {msg.type === 'prescription' && (
                           <div className="flex flex-col gap-4 items-center bg-white text-[#2D2D2D] p-6 rounded-2xl">
-                             <QRCodeSVG value={msg.content} size={120} />
+                             <QRCodeCanvas ref={qrRef} value={msg.content} size={120} />
                              <div className="text-center">
                                 <p className="text-xs font-bold text-gray-500">رقم الوصفة للصيدلية</p>
-                                <p className="text-xl font-black text-brand tracking-widest">{msg.content}</p>
+                                <p className="text-xl font-black text-brand tracking-widest mb-4">{msg.content}</p>
+                                <div className="flex gap-2">
+                                   <button onClick={() => handleCopyPrescription(msg.content)} className="flex items-center gap-1 text-[10px] bg-bg-base font-bold text-brand px-3 py-1.5 rounded-full hover:bg-brand hover:text-white">
+                                      <Copy size={12} /> نسخ
+                                   </button>
+                                   <button onClick={handleDownloadQR} className="flex items-center gap-1 text-[10px] bg-bg-base font-bold text-brand px-3 py-1.5 rounded-full hover:bg-brand hover:text-white">
+                                      <Download size={12} /> حفظ QR
+                                   </button>
+                                </div>
                              </div>
                           </div>
                         )}
@@ -159,6 +230,10 @@ export function PatientDashboard() {
             )}
          </main>
          <div className="p-6 bg-white border-t border-border-subtle flex items-center gap-4">
+            <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*,.pdf,.doc,.docx" />
+            <button onClick={() => fileInputRef.current?.click()} className="p-3 text-brand bg-bg-base rounded-full hover:bg-brand hover:text-white transition-all" disabled={isProcessing}>
+               <Paperclip size={20} />
+            </button>
             <div className="flex-1 bg-bg-base h-12 rounded-full px-4 flex items-center text-gray-400 text-sm font-bold">
                {selectedCase.status === 'closed' ? 'هذه الاستشارة مغلقة...' : 'سجل استفسارك الإضافي هنا...'}
             </div>

@@ -18,6 +18,23 @@ async function startServer() {
     res.json({ status: "ok", message: "طبيب الحي API is running" });
   });
 
+  app.post("/api/ollama", async (req, res) => {
+    try {
+      const response = await fetch("http://185.190.140.93:11434/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+           model: "qwen2.5:1.5b",
+           ...req.body
+        }),
+      });
+      const data = await response.json();
+      res.json(data);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to connect to Ollama" });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

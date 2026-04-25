@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useConsultations, Consultation } from '../hooks/useConsultations';
 import { useMessages } from '../hooks/useMessages';
 import { db, auth } from '../lib/firebase';
@@ -10,6 +10,7 @@ import { AudioRecorder } from './AudioRecorder';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import toast from 'react-hot-toast';
+import { uploadMessageFile } from '../lib/storage';
 
 export function DoctorDashboard() {
   const user = auth.currentUser;
@@ -20,7 +21,31 @@ export function DoctorDashboard() {
   const [filterSpecialty, setFilterSpecialty] = useState('كل التخصصات');
   const [searchQuery, setSearchQuery] = useState('');
   const [showHistory, setShowHistory] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { messages, loading: messagesLoading } = useMessages(selectedCase?.id);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user || !selectedCase) return;
+    
+    setIsReplying(true);
+    try {
+      const fileUrl = await uploadMessageFile(file, selectedCase.id);
+      await addDoc(collection(db, `consultations/${selectedCase.id}/messages`), {
+        senderId: user.uid,
+        content: fileUrl,
+        type: 'image',
+        createdAt: serverTimestamp(),
+      });
+      toast.success("تم إرسال الملف");
+    } catch(err) {
+      console.error(err);
+      toast.error("حدث خطأ في رفع الملف");
+    } finally {
+      setIsReplying(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
   const prevConsultationsLength = React.useRef(0);
   const prevMessagesLength = React.useRef(0);
 
@@ -441,6 +466,7 @@ export function DoctorDashboard() {
                               <div className={`p-4 rounded-2xl max-w-[80%] ${msg.senderId === user?.uid ? 'bg-brand text-white' : 'bg-bg-base text-[#2D2D2D]'}`}>
                                 {msg.type === 'text' && <p className="font-bold">{msg.content}</p>}
                                 {msg.type === 'voice' && <AudioPlayer src={msg.content} className={msg.senderId === user?.uid ? 'bg-white/20' : ''} />}
+                                {msg.type === 'image' && <img src={msg.content} className="rounded-2xl max-w-full" alt="attachment" />}
                                 {msg.type === 'prescription' && (
                                   <div className="flex flex-col gap-2">
                                     <FileText size={24} />
@@ -465,11 +491,19 @@ export function DoctorDashboard() {
             <div className="p-8 bg-white border-t border-border-subtle sticky bottom-0">
               <div className="max-w-4xl mx-auto flex items-end gap-4">
                 <div className="flex-1 relative">
+                  <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*,.pdf,.doc,.docx" />
+                  <button 
+                    onClick={() => fileInputRef.current?.click()} 
+                    className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-brand transition-all"
+                    disabled={isReplying}
+                  >
+                    <Paperclip size={20} />
+                  </button>
                   <textarea
                     value={replyText}
                     onChange={(e) => setReplyText(e.target.value)}
                     placeholder="اكتب توجيهاتك الطبية هنا..."
-                    className="w-full pr-8 pl-16 py-6 bg-bg-base rounded-[32px] border-none focus:ring-2 focus:ring-brand resize-none min-h-[80px] max-h-40 shadow-inner font-bold text-brand placeholder:text-gray-400"
+                    className="w-full pr-14 pl-16 py-6 bg-bg-base rounded-[32px] border-none focus:ring-2 focus:ring-brand resize-none min-h-[80px] max-h-40 shadow-inner font-bold text-brand placeholder:text-gray-400"
                   />
                   <button 
                     onClick={handleReply}
