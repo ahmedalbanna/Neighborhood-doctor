@@ -19,10 +19,44 @@ export function DoctorDashboard() {
   const [replyText, setReplyText] = useState('');
   const [isReplying, setIsReplying] = useState(false);
   const [filterSpecialty, setFilterSpecialty] = useState('كل التخصصات');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'active' | 'replied'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showHistory, setShowHistory] = useState(false);
+  const [patientData, setPatientData] = useState<any>(null);
+  const [isEditingHistory, setIsEditingHistory] = useState(false);
+  const [historyForm, setHistoryForm] = useState({ conditions: '', treatments: '', allergies: '' });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { messages, loading: messagesLoading } = useMessages(selectedCase?.id);
+
+  // Fetch patient data when case is selected
+  React.useEffect(() => {
+    const fetchPatientData = async () => {
+      if (selectedCase && selectedCase.patientId) {
+        const patientDoc = await getDoc(doc(db, 'users', selectedCase.patientId));
+        if (patientDoc.exists()) {
+          const data = patientDoc.data();
+          setPatientData(data);
+          setHistoryForm(data.medicalHistory || { conditions: '', treatments: '', allergies: '' });
+        }
+      }
+    };
+    fetchPatientData();
+  }, [selectedCase]);
+
+  const handleSaveHistory = async () => {
+    if (!selectedCase || !selectedCase.patientId) return;
+    try {
+      await updateDoc(doc(db, 'users', selectedCase.patientId), {
+        medicalHistory: historyForm
+      });
+      setPatientData({ ...patientData, medicalHistory: historyForm });
+      setIsEditingHistory(false);
+      toast.success("تم تحديث السجل المرضي");
+    } catch (err) {
+      console.error(err);
+      toast.error("حدث خطأ في حفظ السجل");
+    }
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -64,6 +98,7 @@ export function DoctorDashboard() {
     if (!messagesLoading && messages.length > prevMessagesLength.current && prevMessagesLength.current !== 0) {
       if (messages[messages.length - 1]?.senderId !== user?.uid) {
          toast.success("رسالة جديدة من المريض", { icon: "📩" });
+         new Audio("https://actions.google.com/sounds/v1/notifications/beep_short.ogg").play().catch(() => {});
       }
     }
     prevMessagesLength.current = messages.length;
@@ -99,19 +134,14 @@ export function DoctorDashboard() {
     const dateB = b.createdAt?.toDate?.() || new Date(0);
     if (dateB > dateA) return 1;
     if (dateA > dateB) return -1;
-
-    // Then prioritize doctor's specialty
-    const specialtyA = a.suggestedSpecialty || 'عام';
-    const specialtyB = b.suggestedSpecialty || 'عام';
-    if (specialtyA === doctorSpecialty && specialtyB !== doctorSpecialty) return -1;
-    if (specialtyB === doctorSpecialty && specialtyA !== doctorSpecialty) return 1;
     return 0;
   }).filter(c => {
     const specialty = c.suggestedSpecialty || 'عام';
     const matchesSpecialty = filterSpecialty === 'كل التخصصات' || specialty === filterSpecialty;
+    const matchesStatus = filterStatus === 'all' || c.status === filterStatus;
     const searchLower = searchQuery.toLowerCase();
     const matchesSearch = c.patientName.toLowerCase().includes(searchLower) || c.description.toLowerCase().includes(searchLower) || (c.summary && c.summary.toLowerCase().includes(searchLower));
-    return matchesSpecialty && matchesSearch;
+    return matchesSpecialty && matchesStatus && matchesSearch;
   });
 
   const handleVoiceMessage = async (blob: Blob, base64: string) => {
@@ -259,6 +289,24 @@ export function DoctorDashboard() {
               </button>
             ))}
           </div>
+          <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+            {[
+              { label: 'الجميع', value: 'all' },
+              { label: 'بانتظار', value: 'pending' },
+              { label: 'قيد المراجعة', value: 'active' },
+              { label: 'تم الرد', value: 'replied' }
+            ].map(s => (
+              <button
+                key={s.value}
+                onClick={() => setFilterStatus(s.value as any)}
+                className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold transition-all border ${
+                  filterStatus === s.value ? 'bg-white text-brand border-brand' : 'bg-transparent text-gray-400 border-transparent hover:text-brand'
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
@@ -345,7 +393,9 @@ export function DoctorDashboard() {
                       {selectedCase.priority}
                     </div>
                   </div>
-                  <p className="text-xs font-black text-gray-400 uppercase tracking-widest mt-1">مريض - لهجة {selectedCase.detectedDialect || 'يمنية'}</p>
+                  <p className="text-xs font-black text-brand uppercase tracking-widest mt-1">
+                    تخصص مقترح: {selectedCase.suggestedSpecialty || 'عام'}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -378,21 +428,34 @@ export function DoctorDashboard() {
                 {showHistory ? (
                    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-6">
                       <div className="bg-white p-8 rounded-[40px] border border-border-subtle">
-                         <h3 className="font-black text-[#2D2D2D] mb-6">التاريخ المرضي</h3>
-                         <div className="space-y-4">
-                            <div className="p-4 bg-bg-base rounded-2xl border border-border-subtle">
-                               <p className="font-bold text-brand text-sm mb-1">الربو المزمن</p>
-                               <p className="text-xs text-gray-500">تم التشخيص في 2022 - يمارس علاجات التنفس</p>
-                            </div>
-                            <div className="p-4 bg-bg-base rounded-2xl border border-border-subtle">
-                               <p className="font-bold text-brand text-sm mb-1">حساسية ضد البنسلين</p>
-                               <p className="text-xs text-gray-500">تفاعل شديد في حالة الاستهلاك</p>
-                            </div>
+                         <div className="flex justify-between items-center mb-6">
+                            <h3 className="font-black text-[#2D2D2D]">التاريخ المرضي المحدث</h3>
+                            <button onClick={() => isEditingHistory ? handleSaveHistory() : setIsEditingHistory(true)} className="px-4 py-2 bg-brand text-white rounded-xl text-xs font-bold">
+                               {isEditingHistory ? 'حفظ التغييرات' : 'تعديل السجل'}
+                            </button>
                          </div>
-                      </div>
-                      <div className="bg-white p-8 rounded-[40px] border border-border-subtle">
-                         <h3 className="font-black text-[#2D2D2D] mb-6">الاستشارات السابقة</h3>
-                         <div className="space-y-4 text-gray-400">لا توجد سجلات رقمية سابقة متاحة لهذا المريض حالياً.</div>
+                         {isEditingHistory ? (
+                            <div className="space-y-4">
+                               <textarea value={historyForm.conditions} onChange={(e) => setHistoryForm({...historyForm, conditions: e.target.value})} placeholder="الحالات المزمنة..." className="w-full p-4 bg-bg-base rounded-2xl border-none text-sm" />
+                               <textarea value={historyForm.treatments} onChange={(e) => setHistoryForm({...historyForm, treatments: e.target.value})} placeholder="العلاجات السابقة..." className="w-full p-4 bg-bg-base rounded-2xl border-none text-sm" />
+                               <textarea value={historyForm.allergies} onChange={(e) => setHistoryForm({...historyForm, allergies: e.target.value})} placeholder="الحساسية..." className="w-full p-4 bg-bg-base rounded-2xl border-none text-sm" />
+                            </div>
+                         ) : (
+                            <div className="space-y-4">
+                               <div className="p-4 bg-bg-base rounded-2xl border border-border-subtle">
+                                  <p className="font-bold text-brand text-sm mb-1">الحالات المزمنة</p>
+                                  <p className="text-xs text-gray-500">{patientData?.medicalHistory?.conditions || 'لا يوجد'}</p>
+                               </div>
+                               <div className="p-4 bg-bg-base rounded-2xl border border-border-subtle">
+                                  <p className="font-bold text-brand text-sm mb-1">العلاجات السابقة</p>
+                                  <p className="text-xs text-gray-500">{patientData?.medicalHistory?.treatments || 'لا يوجد'}</p>
+                               </div>
+                               <div className="p-4 bg-bg-base rounded-2xl border border-border-subtle">
+                                  <p className="font-bold text-brand text-sm mb-1">الحساسية</p>
+                                  <p className="text-xs text-gray-500">{patientData?.medicalHistory?.allergies || 'لا يوجد'}</p>
+                               </div>
+                            </div>
+                         )}
                       </div>
                    </motion.div>
                 ) : (

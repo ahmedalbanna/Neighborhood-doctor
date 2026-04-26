@@ -3,7 +3,7 @@ import { useConsultations, Consultation } from '../hooks/useConsultations';
 import { AudioRecorder } from './AudioRecorder';
 import { transcribeAndAnalyze } from '../lib/gemini';
 import { db, auth } from '../lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { Clock, CheckCircle2, AlertCircle, Phone, Stethoscope, ChevronRight, Mic, User as UserIcon, Play, MessageSquare, ArrowLeft, Activity, Paperclip, X, Download, Copy, Send } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
@@ -25,6 +25,17 @@ export function PatientDashboard() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const qrRef = useRef<HTMLCanvasElement>(null);
   const { messages, loading: messagesLoading } = useMessages(selectedCaseId || undefined);
+  const audioNotificationUrl = "https://actions.google.com/sounds/v1/notifications/beep_short.ogg";
+
+  // Polling/Watch messages for audio notification
+  React.useEffect(() => {
+    if (!messagesLoading && selectedCaseId) {
+       const lastMessage = messages[messages.length - 1];
+       if (lastMessage && lastMessage.senderId !== user?.uid) {
+         new Audio(audioNotificationUrl).play().catch(() => {});
+       }
+    }
+  }, [messages, messagesLoading, selectedCaseId, user?.uid]);
 
   const selectedCase = consultations.find(c => c.id === selectedCaseId);
 
