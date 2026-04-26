@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Mic, Send, X, AlertTriangle, CheckCircle, Activity, ArrowRight, Loader2, Play, Volume2 } from 'lucide-react';
 import { AudioRecorder } from './AudioRecorder';
-import { getSelfDiagnosisStep } from '../lib/gemini';
+import { getSelfDiagnosisStep, transcribeAndAnalyze } from '../lib/gemini';
 
 interface Step {
   role: "user" | "model";
@@ -10,27 +10,72 @@ interface Step {
 }
 
 export function SymptomChecker({ onClose }: { onClose: () => void }) {
-  const [history, setHistory] = useState<Step[]>([
-    { role: "model", text: "أهلاً بك. أنا مساعدك الطبي الذكي. كيف تشعر اليوم؟ أخبرني عن أعراضك بصوتك." }
-  ]);
+  const [history, setHistory] = useState<Step[]>(() => {
+    const saved = localStorage.getItem('symptomHistory');
+    return saved ? JSON.parse(saved) : [
+      { role: "model", text: "أهلاً بك. أنا مساعدك الطبي الذكي. كيف تشعر اليوم؟ أخبرني عن أعراضك بصوتك." }
+    ];
+  });
   const [isProcessing, setIsProcessing] = useState(false);
-  const [result, setResult] = useState<{ question: string, isFinal: boolean, urgency: string, advice: string } | null>(null);
+  const [isTextMode, setIsTextMode] = useState(false);
+  const [textInput, setTextInput] = useState('');
+  const [result, setResult] = useState<{ question: string, isFinal: boolean, urgency: string, advice: string } | null>(() => {
+    const saved = localStorage.getItem('symptomResult');
+    return saved ? JSON.parse(saved) : null;
+  });
 
+  useEffect(() => {
+    localStorage.setItem('symptomHistory', JSON.stringify(history));
+    if (result) {
+      localStorage.setItem('symptomResult', JSON.stringify(result));
+    } else {
+      localStorage.removeItem('symptomResult');
+    }
+  }, [history, result]);
+
+  const handleClose = () => {
+    // Only clear if final result is reached
+    if (result?.isFinal) {
+      localStorage.removeItem('symptomHistory');
+      localStorage.removeItem('symptomResult');
+    }
+    onClose();
+  };
   const handleAudioResponse = async (blob: Blob, base64: string) => {
     setIsProcessing(true);
     try {
-      // In a real app we'd transcribe this first. Let's mock the transcription for this interactive flow
-      const userText = "أعاني من صداع شديد وحمى منذ الصباح"; 
-      const newHistory: Step[] = [...history, { role: "user", text: userText }];
-      setHistory(newHistory);
-
-      const nextStep = await getSelfDiagnosisStep(newHistory);
-      setResult(nextStep);
-      setHistory([...newHistory, { role: "model", text: nextStep.question }]);
+      const analysis = await transcribeAndAnalyze(base64, blob.type);
+      await processResponse(analysis.transcription);
     } catch (err) {
       console.error(err);
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleTextResponse = async () => {
+    if (!textInput.trim()) return;
+    setIsProcessing(true);
+    try {
+      await processResponse(textInput);
+      setTextInput('');
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const processResponse = async (userText: string) => {
+    const newHistory: Step[] = [...history, { role: "user", text: userText }];
+    setHistory(newHistory);
+
+    const nextStep = await getSelfDiagnosisStep(newHistory);
+    setResult(nextStep.isFinal ? nextStep : null);
+    if (!nextStep.isFinal) {
+        setHistory([...newHistory, { role: "model", text: nextStep.question }]);
+    } else {
+        setHistory([...newHistory, { role: "model", text: nextStep.advice }]);
     }
   };
 
@@ -46,7 +91,7 @@ export function SymptomChecker({ onClose }: { onClose: () => void }) {
             <Activity className="animate-pulse" />
             <h2 className="font-black text-xl">الفحص الذكي</h2>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-full transition-all">
+          <button onClick={handleClose} className="p-2 hover:bg-white/20 rounded-full transition-all">
             <X size={24} />
           </button>
         </header>
@@ -83,7 +128,7 @@ export function SymptomChecker({ onClose }: { onClose: () => void }) {
               <h3 className="font-black text-2xl text-[#2D2D2D]">النتيجة النهائية</h3>
               <p className="font-bold text-gray-500 leading-relaxed">{result.advice}</p>
               <button 
-                onClick={onClose}
+                onClick={handleClose}
                 className="w-full py-4 bg-brand text-white rounded-2xl font-black shadow-lg shadow-brand/20 hover:scale-[1.02] transition-all"
               >
                 فهمت، شكراً لك
@@ -100,8 +145,22 @@ export function SymptomChecker({ onClose }: { onClose: () => void }) {
 
         {!result?.isFinal && (
           <div className="p-8 bg-white border-t border-border-subtle flex flex-col items-center gap-4">
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">اضغط وسجل ردك الصوتي</p>
-            <AudioRecorder minimal onRecordingComplete={handleAudioResponse} isProcessing={isProcessing} />
+            <div className="w-full flex justify-between items-center text-[10px] uppercase tracking-widest font-black text-gray-400">
+               <p>{isTextMode ? 'اكتب ردك' : 'اضغط وسجل ردك الصوتي'}</p>
+               <button onClick={() => setIsTextMode(!isTextMode)} className="text-brand hover:underline">
+                  {isTextMode ? 'استخدم الصوت' : 'استخدم النص'}
+               </button>
+            </div>
+            {isTextMode ? (
+                <div className="w-full flex gap-2">
+                    <input type="text" value={textInput} onChange={(e) => setTextInput(e.target.value)} placeholder="أدخل أعراضك..." className="flex-1 p-4 bg-bg-base rounded-2xl border-none text-sm" />
+                    <button onClick={handleTextResponse} disabled={isProcessing} className="p-4 bg-brand text-white rounded-2xl">
+                        {isProcessing ? <Loader2 className="animate-spin" /> : <Send size={20} />}
+                    </button>
+                </div>
+            ) : (
+                <AudioRecorder minimal onRecordingComplete={handleAudioResponse} isProcessing={isProcessing} />
+            )}
           </div>
         )}
       </div>

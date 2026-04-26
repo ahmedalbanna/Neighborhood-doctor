@@ -10,7 +10,7 @@ export async function transcribeAndAnalyze(audioBase64: string, mimeType: string
       3. صنف الأولوية إلى: low, medium, high, emergency.
       4. اقترح التخصص الطبي المناسب للحالة من: "عام", "أطفال", "نساء وتوليد", "قلب", "باطنية".
       
-      يجب أن يكون الرد بتنسيق JSON حصراً:
+      يجب أن يكون الرد بتنسيق JSON حصراً. لا تستخدم ماركداون، لا تبدأ الرد بـ \`\`\`json. ابدأ مباشرة بـ { وانته بـ }.
       {
         "transcription": "التفريغ النصي الدقيق لكلام المريض",
         "summary": "ملخص الحالة والأعراض المذكورة",
@@ -25,7 +25,7 @@ export async function transcribeAndAnalyze(audioBase64: string, mimeType: string
     // here we just prompt for analysis.
     
     const responseText = await queryOllama(prompt);
-    const cleanText = responseText.replace(/```json\n?|\n?```/g, '').trim();
+    const cleanText = responseText.replace(/[\s\S]*({[\s\S]*})[\s\S]*/, '$1').trim();
     return JSON.parse(cleanText || "{}");
   } catch (error) {
     console.error("Ollama Analysis Error:", error);
@@ -45,7 +45,7 @@ export async function getSelfDiagnosisStep(history: { role: "user" | "model", te
       بناءً على المحادثة السابقة:
       1. اقترح السؤال التالي للمريض باللهجة اليمنية البسيطة.
       2. إذا كانت الحالة كافية للتشخيص الأولي، قدم النتيجة (فحص منزلي، استشارة طبيب، أو طوارئ).
-      3. يجب أن يكون الرد بتنسيق JSON:
+      3. يجب أن يكون الرد بتنسيق JSON حصراً. لا تستخدم ماركداون، لا تبدأ الرد بـ \`\`\`json. ابدأ مباشرة بـ { وانته بـ }.
       {
         "question": "السؤال التالي أو التوجيه النهائي",
         "isFinal": true | false,
@@ -57,7 +57,7 @@ export async function getSelfDiagnosisStep(history: { role: "user" | "model", te
     const responseText = await queryOllama(prompt, systemInstruction);
 
     if (!responseText) throw new Error("No text returned");
-    const cleanText = responseText.replace(/```json\n?|\n?```/g, '').trim();
+    const cleanText = responseText.replace(/[\s\S]*({[\s\S]*})[\s\S]*/, '$1').trim();
     return JSON.parse(cleanText || "{}");
   } catch (error) {
     console.error("Diagnosis Error:", error);

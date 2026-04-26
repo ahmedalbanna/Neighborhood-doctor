@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Search, Filter, MessageSquare, User as UserIcon, Stethoscope, ChevronLeft, Send, CheckCircle, Phone, Play, Paperclip, X, History, FileText } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
 import { AudioRecorder } from './AudioRecorder';
+import { PatientHistoryModal } from './PatientHistoryModal';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import toast from 'react-hot-toast';
@@ -22,6 +23,8 @@ export function DoctorDashboard() {
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'active' | 'replied'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showHistory, setShowHistory] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [patientDataForHistory, setPatientDataForHistory] = useState<any>(null);
   const [patientData, setPatientData] = useState<any>(null);
   const [isEditingHistory, setIsEditingHistory] = useState(false);
   const [historyForm, setHistoryForm] = useState({ conditions: '', treatments: '', allergies: '' });
@@ -78,6 +81,14 @@ export function DoctorDashboard() {
     } finally {
       setIsReplying(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const openHistoryModal = async (patientId: string) => {
+    const patientDoc = await getDoc(doc(db, 'users', patientId));
+    if (patientDoc.exists()) {
+      setPatientDataForHistory(patientDoc.data());
+      setIsHistoryModalOpen(true);
     }
   };
   const prevConsultationsLength = React.useRef(0);
@@ -367,12 +378,28 @@ export function DoctorDashboard() {
                       <Play size={14} fill="currentColor" />
                     </button>
                   )}
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openHistoryModal(c.patientId);
+                    }}
+                    className="p-2 bg-bg-base text-brand rounded-xl hover:bg-brand hover:text-white transition-all shadow-sm"
+                    title="عرض السجل الطبي"
+                  >
+                    <FileText size={14} />
+                  </button>
                 </div>
               </button>
             ))
           )}
         </div>
       </div>
+
+      <PatientHistoryModal 
+        isOpen={isHistoryModalOpen} 
+        onClose={() => setIsHistoryModalOpen(false)} 
+        patientData={patientDataForHistory}
+      />
 
       {/* Main Content - Case Detail */}
       <div className={`flex-1 flex flex-col bg-bg-base ${selectedCase ? 'flex' : 'hidden lg:flex'}`}>

@@ -22,11 +22,20 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
+    function isValidMedicalHistory(data) {
+      return data.medicalHistory is map &&
+             data.medicalHistory.conditions is string &&
+             data.medicalHistory.treatments is string &&
+             data.medicalHistory.allergies is string;
+    }
+
     match /users/{userId} {
       allow read: if isSignedIn();
       allow create: if isOwner(userId) && isValidUser(request.resource.data);
-      allow update: if isOwner(userId) && 
-                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'phone', 'specialty', 'photoURL']);
+      allow update: if isOwner(userId) && (
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'phone', 'specialty', 'photoURL'])) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['medicalHistory']) && isValidMedicalHistory(request.resource.data))
+      );
     }
 
     function isConsultationParticipant(data) {

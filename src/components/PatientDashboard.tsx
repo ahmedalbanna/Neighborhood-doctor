@@ -3,7 +3,8 @@ import { useConsultations, Consultation } from '../hooks/useConsultations';
 import { AudioRecorder } from './AudioRecorder';
 import { transcribeAndAnalyze } from '../lib/gemini';
 import { db, auth } from '../lib/firebase';
-import { collection, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { mergeMedicalHistory } from '../services/ollamaService';
 import { motion, AnimatePresence } from 'motion/react';
 import { Clock, CheckCircle2, AlertCircle, Phone, Stethoscope, ChevronRight, Mic, User as UserIcon, Play, MessageSquare, ArrowLeft, Activity, Paperclip, X, Download, Copy, Send } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
@@ -109,8 +110,15 @@ export function PatientDashboard() {
 
       // 1. AI Analysis
       const analysis = await transcribeAndAnalyze(base64, blob.type);
+
+      // 2. Automatically update medical history
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      const userData = userDoc.exists() ? userDoc.data() : {};
+      const currentHistory = userData.medicalHistory || { conditions: '', treatments: '', allergies: '' };
+      const updatedHistory = await mergeMedicalHistory(currentHistory, analysis.summary);
+      await updateDoc(doc(db, 'users', user.uid), { medicalHistory: updatedHistory });
       
-      // 2. Save to Firestore
+      // 3. Save to Firestore
       await addDoc(collection(db, 'consultations'), {
         patientId: user.uid,
         patientName: user.displayName || 'مريض',
@@ -171,6 +179,48 @@ export function PatientDashboard() {
       case 'replied': return 'تم الرد';
       case 'closed': return 'مغلقة';
       default: return status;
+    }
+  };
+
+  function handleFirestoreError(error: unknown, operationType: string, path: string | null) {
+    const errInfo = {
+      error: error instanceof Error ? error.message : String(error),
+      authInfo: {
+        userId: auth.currentUser?.uid,
+        email: auth.currentUser?.email,
+        emailVerified: auth.currentUser?.emailVerified,
+        isAnonymous: auth.currentUser?.isAnonymous,
+      },
+      operationType,
+      path
+    };
+    console.error('Firestore Error: ', JSON.stringify(errInfo));
+    throw new Error(JSON.stringify(errInfo));
+  }
+
+  const handleImproveMedicalHistory = async () => {
+    if (!user) return;
+    setIsProcessing(true);
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userRef);
+      const userData = userDoc.exists() ? userDoc.data() : {};
+      const currentHistory = userData.medicalHistory || { conditions: '', treatments: '', allergies: '' };
+      
+      const latest = consultations.length > 0 ? consultations[0] : null;
+      if (!latest) {
+          toast.error("لا توجد استشارات لدمجها");
+          return;
+      }
+      
+      const updatedHistory = await mergeMedicalHistory(currentHistory, latest.summary || latest.description);
+      await updateDoc(userRef, { medicalHistory: updatedHistory });
+      toast.success("تم تحسين الملف الطبي بنجاح");
+    } catch (err) {
+      handleFirestoreError(err, 'update', `users/${user.uid}`);
+      toast.error("حدث خطأ أثناء تحسين الملف");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -281,10 +331,14 @@ export function PatientDashboard() {
           <Activity size={24} className="animate-pulse" />
           <span className="text-xs font-black uppercase tracking-widest">فحص سريع</span>
         </button>
-        <div className="bg-white border border-border-subtle p-6 rounded-[32px] flex flex-col items-center gap-2">
-          <Stethoscope size={24} className="text-brand" />
+        <button 
+          onClick={handleImproveMedicalHistory}
+          className="bg-white border border-border-subtle p-6 rounded-[32px] flex flex-col items-center gap-2 hover:scale-[1.02] transition-all disabled:opacity-50"
+          disabled={isProcessing}
+        >
+          <Stethoscope size={24} className={isProcessing ? "animate-spin text-brand" : "text-brand"} />
           <span className="text-xs font-black text-gray-400 uppercase tracking-widest">تحسين الملف</span>
-        </div>
+        </button>
       </div>
 
       <main className="flex-1 p-8 space-y-10">
